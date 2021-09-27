@@ -1,19 +1,24 @@
+from typing import Type
 import openmesh as om
+from torch_geometric.data.dataset import Dataset
 from datasets import CoMA
 
 
 class MeshData(object):
-    def __init__(self,
-                 root,
-                 template_fp,
-                 split='interpolation',
-                 test_exp='bareteeth',
-                 transform=None,
-                 pre_transform=None):
+    def __init__(
+        self,
+        root,
+        template_fp,
+        transform=None,
+        pre_transform=None,
+        datast: Dataset = CoMA,
+        dataset_kwargs={"split": 'interpolation',
+                        "test_exp": 'bareteeth'}
+    ):
         self.root = root
         self.template_fp = template_fp
-        self.split = split
-        self.test_exp = test_exp
+        self.set = datast
+        self.dataset_kwargs = dataset_kwargs
         self.transform = transform
         self.pre_transform = pre_transform
         self.train_dataset = None
@@ -27,18 +32,20 @@ class MeshData(object):
         self.load()
 
     def load(self):
-        self.train_dataset = CoMA(self.root,
-                                  train=True,
-                                  split=self.split,
-                                  test_exp=self.test_exp,
-                                  transform=self.transform,
-                                  pre_transform=self.pre_transform)
-        self.test_dataset = CoMA(self.root,
-                                 train=False,
-                                 split=self.split,
-                                 test_exp=self.test_exp,
-                                 transform=self.transform,
-                                 pre_transform=self.pre_transform)
+        self.train_dataset = self.set(
+            self.root,
+            train=True,
+            transform=self.transform,
+            pre_transform=self.pre_transform,
+            **self.dataset_kwargs
+        )
+        self.test_dataset = self.set(
+            self.root,
+            train=False,
+            transform=self.transform,
+            pre_transform=self.pre_transform,
+            **self.dataset_kwargs
+        )
 
         tmp_mesh = om.read_trimesh(self.template_fp)
         self.template_points = tmp_mesh.points()
@@ -47,10 +54,12 @@ class MeshData(object):
 
         self.num_train_graph = len(self.train_dataset)
         self.num_test_graph = len(self.test_dataset)
-        self.mean = self.train_dataset.data.x.view(self.num_train_graph, -1,
-                                                   3).mean(dim=0)
-        self.std = self.train_dataset.data.x.view(self.num_train_graph, -1,
-                                                  3).std(dim=0)
+        self.mean = self.train_dataset.data.x.view(
+            self.num_train_graph, -1, 3
+        ).mean(dim=0)
+        self.std = self.train_dataset.data.x.view(
+            self.num_train_graph, -1, 3
+        ).std(dim=0)
         self.normalize()
 
     def normalize(self):

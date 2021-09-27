@@ -127,6 +127,7 @@ scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                             args.decay_step,
                                             gamma=args.lr_decay)
 
+exit()
 run(model, train_loader, test_loader, args.epochs, optimizer, scheduler,
     writer, device)
 eval_error(model, test_loader, device, meshdata, args.out_dir)

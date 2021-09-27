@@ -1,7 +1,22 @@
 import time
 import os
+import numpy as np
 import torch
 import torch.nn.functional as F
+import openmesh as om
+
+
+def c1_loss(label, pred) -> float:
+    # tf.experimental.numpy.diff(pred, n=2, axis=0)
+    h_loss = (pred[:, 1:]-pred[:, :-1])[:, 1:] - \
+        (pred[:, 1:]-pred[:, :-1])[:, :-1]
+    h_loss = abs(h_loss[:, 1::2])
+    # tf.experimental.numpy.diff(pred, n=2, axis=1)
+    v_loss = (pred[:, :, 1:]-pred[:, :, :-1])[:, :, 1:] - \
+        (pred[:, :, 1:]-pred[:, :, :-1])[:, :, :-1]
+    v_loss = abs(v_loss[:, :, 1::2])
+    # tf.math.reduce_sum(h_loss) + tf.math.reduce_sum(v_loss)
+    return torch.sum(h_loss) + torch.sum(v_loss)
 
 
 def run(model, train_loader, test_loader, epochs, optimizer, scheduler, writer,
@@ -35,7 +50,8 @@ def train(model, optimizer, loader, device):
         x = data.x.to(device)
         y = data.y.to(device)
         out = model(x)
-        loss = F.l1_loss(out, y, reduction='mean')
+        # F.mse_loss(out, y)  # F.l1_loss(out, y, reduction='mean')
+        loss = (0.01*c1_loss(y, out) + F.l1_loss(out, y, reduction='mean'))
         loss.backward()
         total_loss += loss.item()
         optimizer.step()
@@ -51,7 +67,10 @@ def test(model, loader, device):
             x = data.x.to(device)
             y = data.y.to(device)
             pred = model(x)
-            total_loss += F.l1_loss(pred, y, reduction='mean')
+            # F.l1_loss(pred, y, reduction='mean')
+            # F.mse_loss(pred, y)
+            total_loss += (0.01*c1_loss(y, pred) +
+                           F.l1_loss(pred, y, reduction='mean'))
     return total_loss / len(loader)
 
 
@@ -77,6 +96,17 @@ def eval_error(model, test_loader, device, meshdata, out_dir):
                 torch.sum((reshaped_pred - reshaped_y)**2,
                           dim=2))  # [num_graphs, num_nodes]
             errors.append(tmp_error)
+            if i == 0:
+                pred_mesh = om.TriMesh(
+                    points=pred[0].numpy(),
+                    face_vertex_indices=data.face[0].numpy().transpose()
+                )
+                om.write_mesh(mesh=pred_mesh, filename="test_result.obj")
+                label_mesh = om.TriMesh(
+                    points=y[0].numpy(),
+                    face_vertex_indices=data.face[0].numpy().transpose()
+                )
+                om.write_mesh(mesh=label_mesh, filename="test_label.obj")
         new_errors = torch.cat(errors, dim=0)  # [n_total_graphs, num_nodes]
 
         mean_error = new_errors.view((-1, )).mean()

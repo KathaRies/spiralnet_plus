@@ -3,6 +3,7 @@ import time
 import torch
 import json
 from glob import glob
+from torch.utils.tensorboard import SummaryWriter
 
 
 class Writer:
@@ -17,14 +18,22 @@ class Writer:
                         time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())))
             else:
                 self.log_file = tmp_log_list[0]
+        self.writer = SummaryWriter(os.path.join(
+            args.out_dir, "board", f"{args.dataset}_{args.epochs}_{time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())}")
+        )
 
     def print_info(self, info):
-        message = 'Epoch: {}/{}, Duration: {:.3f}s, Train Loss: {:.4f}, Test Loss: {:.4f}' \
-                .format(info['current_epoch'], info['epochs'], info['t_duration'], \
-                info['train_loss'], info['test_loss'])
+        message = 'Epoch: {}/{}, Duration: {:.3f}s, Train Loss: {:.4f}, Test Loss: {:.4f}'.format(info['current_epoch'], info['epochs'], info['t_duration'],
+                                                                                                  info['train_loss'], info['test_loss'])
         with open(self.log_file, 'a') as log_file:
             log_file.write('{:s}\n'.format(message))
         print(message)
+        self.writer.add_scalar(
+            'Loss/train', info['train_loss'], info['current_epoch']
+        )
+        self.writer.add_scalar(
+            'Loss/test', info['test_loss'], info['current_epoch']
+        )
 
     def save_checkpoint(self, model, optimizer, scheduler, epoch):
         torch.save(

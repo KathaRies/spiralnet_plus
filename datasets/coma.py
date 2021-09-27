@@ -27,13 +27,15 @@ class CoMA(InMemoryDataset):
         'mouth_up',
     ]
 
-    def __init__(self,
-                 root,
-                 train=True,
-                 split='interpolation',
-                 test_exp='bareteeth',
-                 transform=None,
-                 pre_transform=None):
+    def __init__(
+        self,
+        root,
+        train=True,
+        transform=None,
+        pre_transform=None,
+        split='interpolation',
+        test_exp='bareteeth'
+    ):
         self.split = split
         self.test_exp = test_exp
         if not osp.exists(osp.join(root, 'processed', self.split)):

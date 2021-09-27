@@ -12,10 +12,10 @@ import torch_geometric.transforms as T
 
 from psbody.mesh import Mesh
 
-from utils import preprocess_spiral, utils, mesh_sampling, writer, DataLoader
-from datasets import BEZIER
+from utils import utils, mesh_sampling, writer, DataLoader
+from datasets import BEZIER, meshdata
 
-from hole_filling import run, AE
+from hole_filling import run, AE, eval_error
 
 # Settings
 parser = argparse.ArgumentParser(description='hole_filling')
@@ -29,11 +29,11 @@ parser.add_argument('--out_channels',
                     nargs='+',
                     default=[32, 64],
                     type=int)
-parser.add_argument('--latent_channels', type=int, default=16)
+parser.add_argument('--latent_channels', type=int, default=64)
 parser.add_argument('--in_channels', type=int, default=3)
-parser.add_argument('--seq_length', type=int, default=[6, 6], nargs='+')
-parser.add_argument('--dilation', type=int, default=[1, 1], nargs='+')
-parser.add_argument('--pooling', type=int, default=[3, 3], nargs='+')
+parser.add_argument('--seq_length', type=int, default=[9, 9, 9], nargs='+')
+parser.add_argument('--dilation', type=int, default=[1, 1, 1], nargs='+')
+parser.add_argument('--pooling', type=int, default=[3, 2, 2], nargs='+')
 
 # Dimensions e.g 2x2_4x4
 # input: 81,3 vertices, 238 edges, 97 faces (tris)
@@ -74,8 +74,16 @@ utils.makedirs(args.checkpoints_dir)
 writer = writer.Writer(args)
 
 # Data
-train_dataset = BEZIER(args.data_fp, True)
-test_dataset = BEZIER(args.data_fp, False)
+template_fp = osp.join(args.data_fp, 'raw', 'train',
+                       'label', 'label_0.obj')
+meshdata = meshdata.MeshData(
+    root=args.data_fp,
+    template_fp=template_fp,
+    datast=BEZIER,
+    dataset_kwargs={}
+)
+train_dataset = meshdata.train_dataset  # BEZIER(args.data_fp, True)
+test_dataset = meshdata.test_dataset  # BEZIER(args.data_fp, False)
 train_loader = DataLoader(
     train_dataset, batch_size=args.batch_size, shuffle=True
 )
@@ -89,8 +97,6 @@ print(d)
 transform_fp = osp.join(args.data_fp, 'transform.pkl')
 if not osp.exists(transform_fp):
     print('Generating transform matrices...')
-    template_fp = osp.join(args.data_fp, 'raw', 'train',
-                           'label', 'label_0.obj')
     mesh = Mesh(filename=template_fp)
     _, A, D, U, F, V = mesh_sampling.generate_transform_matrices(
         mesh, args.pooling
@@ -160,4 +166,4 @@ run(
     writer=writer,
     device=device
 )
-# eval_error(model, test_loader, device, meshdata, args.out_dir)
+eval_error(model, test_loader, device, meshdata, args.out_dir)
