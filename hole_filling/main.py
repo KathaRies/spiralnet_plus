@@ -9,13 +9,14 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch_geometric.transforms as T
 #from torch_geometric.data import DataLoader
+from torchsummary import summary
 
 from psbody.mesh import Mesh
 
 from utils import utils, mesh_sampling, writer, DataLoader
 from datasets import BEZIER, meshdata
 
-from hole_filling import run, AE, eval_error
+from hole_filling import run, SkipAE, eval_error
 
 # Settings
 parser = argparse.ArgumentParser(description='hole_filling')
@@ -29,11 +30,11 @@ parser.add_argument('--out_channels',
                     nargs='+',
                     default=[32, 64],
                     type=int)
-parser.add_argument('--latent_channels', type=int, default=64)
+parser.add_argument('--latent_channels', type=int, default=32)
 parser.add_argument('--in_channels', type=int, default=3)
-parser.add_argument('--seq_length', type=int, default=[9, 9, 9], nargs='+')
-parser.add_argument('--dilation', type=int, default=[1, 1, 1], nargs='+')
-parser.add_argument('--pooling', type=int, default=[3, 2, 2], nargs='+')
+parser.add_argument('--seq_length', type=int, default=[5, 5], nargs='+')
+parser.add_argument('--dilation', type=int, default=[1, 1], nargs='+')
+parser.add_argument('--pooling', type=int, default=[2, 2], nargs='+')
 
 # Dimensions e.g 2x2_4x4
 # input: 81,3 vertices, 238 edges, 97 faces (tris)
@@ -87,7 +88,7 @@ test_dataset = meshdata.test_dataset  # BEZIER(args.data_fp, False)
 train_loader = DataLoader(
     train_dataset, batch_size=args.batch_size, shuffle=True
 )
-test_loader = DataLoader(test_dataset, batch_size=1)
+test_loader = DataLoader(test_dataset, batch_size=args.batch_size)
 d = train_dataset[0]
 # spiral_indices = preprocess_spiral(d.face.T, args.seq_length).to(device)
 print(d)
@@ -134,13 +135,17 @@ up_transform_list = [
     for up_transform in tmp['up_transform']
 ]
 
-model = AE(
+model = SkipAE(
     args.in_channels, args.out_channels, args.latent_channels,
     spiral_indices_list, down_transform_list,
     up_transform_list
 ).to(device)
 print('Number of parameters: {}'.format(utils.count_parameters(model)))
 print(model)
+print(d.size())
+#summary(model, input_size=(81, 3))
+# x = torch.zeros((1, 81, 3)).to(device)  # d.x.to(device).unsqueeze(0)
+#writer.add_graph(model, x)
 
 # train
 optimizer = optim.Adam(

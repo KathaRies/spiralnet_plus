@@ -45,3 +45,8 @@ class Writer:
             },
             os.path.join(self.args.checkpoints_dir,
                          'checkpoint_{:03d}.pt'.format(epoch)))
+
+    def add_graph(self, model, input):
+        print(input.size())
+        self.writer.add_graph(
+            model=model, input_to_model=input, verbose=True)

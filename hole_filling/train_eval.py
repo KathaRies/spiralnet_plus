@@ -51,7 +51,8 @@ def train(model, optimizer, loader, device):
         y = data.y.to(device)
         out = model(x)
         # F.mse_loss(out, y)  # F.l1_loss(out, y, reduction='mean')
-        loss = (0.01*c1_loss(y, out) + F.l1_loss(out, y, reduction='mean'))
+        # (0.01*c1_loss(y, out) + F.l1_loss(out, y, reduction='mean'))
+        loss = F.l1_loss(out, y, reduction='mean')
         loss.backward()
         total_loss += loss.item()
         optimizer.step()
@@ -69,8 +70,8 @@ def test(model, loader, device):
             pred = model(x)
             # F.l1_loss(pred, y, reduction='mean')
             # F.mse_loss(pred, y)
-            total_loss += (0.01*c1_loss(y, pred) +
-                           F.l1_loss(pred, y, reduction='mean'))
+            total_loss += F.l1_loss(pred, y, reduction='mean')
+            #(0.01*c1_loss(y, pred) + F.l1_loss(pred, y, reduction='mean'))
     return total_loss / len(loader)
 
 
