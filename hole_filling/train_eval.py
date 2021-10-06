@@ -19,47 +19,7 @@ def c1_loss(label, pred) -> float:
     return torch.sum(h_loss) + torch.sum(v_loss)
 
 
-def run(model, train_loader, test_loader, epochs, optimizer, scheduler, writer,
-        device):
-    train_losses, test_losses = [], []
-
-    for epoch in range(1, epochs + 1):
-        t = time.time()
-        train_loss = train(model, optimizer, train_loader, device)
-        t_duration = time.time() - t
-        test_loss = test(model, test_loader, device)
-        scheduler.step()
-        info = {
-            'current_epoch': epoch,
-            'epochs': epochs,
-            'train_loss': train_loss,
-            'test_loss': test_loss,
-            't_duration': t_duration
-        }
-
-        writer.print_info(info)
-        writer.save_checkpoint(model, optimizer, scheduler, epoch)
-
-
-def train(model, optimizer, loader, device):
-    model.train()
-
-    total_loss = 0
-    for data in loader:
-        optimizer.zero_grad()
-        x = data.x.to(device)
-        y = data.y.to(device)
-        out = model(x)
-        # F.mse_loss(out, y)  # F.l1_loss(out, y, reduction='mean')
-        # (0.01*c1_loss(y, out) + F.l1_loss(out, y, reduction='mean'))
-        loss = F.l1_loss(out, y, reduction='mean')
-        loss.backward()
-        total_loss += loss.item()
-        optimizer.step()
-    return total_loss / len(loader)
-
-
-def test(model, loader, device):
+def c1_eval(model, loader, use_mask, device) -> float:
     model.eval()
 
     total_loss = 0
@@ -67,6 +27,81 @@ def test(model, loader, device):
         for i, data in enumerate(loader):
             x = data.x.to(device)
             y = data.y.to(device)
+            if use_mask:
+                mask = data.mask.to(device)
+                x = torch.cat((x, mask), -1)
+            pred = model(x)
+            total_loss += c1_loss(y, y)  # TODO change to pred
+    return total_loss / len(loader)
+
+
+def run(model, train_loader, test_loader, epochs, optimizer, scheduler, writer,
+        device, use_mask):
+    train_losses, test_losses = [], []
+
+    for epoch in range(1, epochs + 1):
+        t = time.time()
+        train_loss = train(model, optimizer, train_loader, device, use_mask)
+        t_duration = time.time() - t
+        test_loss = test(model, test_loader, device, use_mask)
+        scheduler.step()
+        info = {
+            'current_epoch': epoch,
+            'epochs': epochs,
+            'train_loss': train_loss,
+            'test_loss': test_loss,
+            't_duration': t_duration,
+            'c1_test': c1_eval(model, test_loader, use_mask, device),
+            'c1_train': c1_eval(model, train_loader, use_mask, device)
+        }
+
+        writer.print_info(info)
+        writer.save_checkpoint(model, optimizer, scheduler, epoch)
+
+
+def train(model, optimizer, loader, device, use_mask):
+    model.train()
+
+    total_loss = 0
+    for i, data in enumerate(loader):
+        optimizer.zero_grad()
+        x = data.x.to(device)
+        y = data.y.to(device)
+        if use_mask:
+            mask = data.mask.to(device)
+            x = torch.cat((x, mask), -1)
+        out = model(x)
+        # F.mse_loss(out, y)  # F.l1_loss(out, y, reduction='mean')
+        # (0.01*c1_loss(y, out) + F.l1_loss(out, y, reduction='mean'))
+        loss = F.l1_loss(out, y, reduction='mean')
+        loss.backward()
+        total_loss += loss.item()
+        optimizer.step()
+        if i == 0:
+            pred_mesh = om.TriMesh(
+                points=out.detach()[0].numpy(),
+                face_vertex_indices=data.face[0].numpy().transpose()
+            )
+            om.write_mesh(mesh=pred_mesh, filename="train_result.obj")
+            label_mesh = om.TriMesh(
+                points=y[0].numpy(),
+                face_vertex_indices=data.face[0].numpy().transpose()
+            )
+            om.write_mesh(mesh=label_mesh, filename="train_label.obj")
+    return total_loss / len(loader)
+
+
+def test(model, loader, device, use_mask):
+    model.eval()
+
+    total_loss = 0
+    with torch.no_grad():
+        for i, data in enumerate(loader):
+            x = data.x.to(device)
+            y = data.y.to(device)
+            if use_mask:
+                mask = data.mask.to(device)
+                x = torch.cat((x, mask), -1)
             pred = model(x)
             # F.l1_loss(pred, y, reduction='mean')
             # F.mse_loss(pred, y)
@@ -75,7 +110,7 @@ def test(model, loader, device):
     return total_loss / len(loader)
 
 
-def eval_error(model, test_loader, device, meshdata, out_dir):
+def eval_error(model, test_loader, device, meshdata, out_dir, use_mask):
     model.eval()
 
     errors = []
@@ -85,6 +120,9 @@ def eval_error(model, test_loader, device, meshdata, out_dir):
         for i, data in enumerate(test_loader):
             x = data.x.to(device)
             y = data.y.to(device)
+            if use_mask:
+                mask = data.mask.to(device)
+                x = torch.cat((x, mask), -1)
             pred = model(x)
             num_graphs = data.num_graphs
             reshaped_pred = (pred.view(num_graphs, -1, 3).cpu() * std) + mean

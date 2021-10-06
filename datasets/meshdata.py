@@ -60,7 +60,7 @@ class MeshData(object):
         self.std = self.train_dataset.data.x.view(
             self.num_train_graph, -1, 3
         ).std(dim=0)
-        self.normalize()
+        # self.normalize()
 
     def normalize(self):
         print('Normalizing...')

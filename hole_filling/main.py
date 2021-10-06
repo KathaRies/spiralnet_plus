@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import argparse
 import os.path as osp
 import pickle
@@ -12,15 +13,18 @@ import torch_geometric.transforms as T
 from torchsummary import summary
 
 from psbody.mesh import Mesh
+from conv.spiralconv import GatedSpiralConv, SpiralConv
+from hole_filling.train_eval import c1_loss
 
 from utils import utils, mesh_sampling, writer, DataLoader
 from datasets import BEZIER, meshdata
 
-from hole_filling import run, SkipAE, eval_error
+from hole_filling import run, SkipAE, eval_error, CNN, AE
+from correspondence.network import Net
 
 # Settings
 parser = argparse.ArgumentParser(description='hole_filling')
-parser.add_argument('--dataset', type=str, default='100_0_2x2_4x4')
+parser.add_argument('--dataset', type=str, default='500_0_2x2_4x4_0')
 # -1 cpu, else gpu idx
 parser.add_argument('--device_idx', type=int, default=0)
 parser.add_argument('--n_threads', type=int, default=4)
@@ -31,7 +35,7 @@ parser.add_argument('--out_channels',
                     default=[32, 64],
                     type=int)
 parser.add_argument('--latent_channels', type=int, default=32)
-parser.add_argument('--in_channels', type=int, default=3)
+parser.add_argument('--in_channels', type=int, default=4)
 parser.add_argument('--seq_length', type=int, default=[5, 5], nargs='+')
 parser.add_argument('--dilation', type=int, default=[1, 1], nargs='+')
 parser.add_argument('--pooling', type=int, default=[2, 2], nargs='+')
@@ -76,7 +80,7 @@ writer = writer.Writer(args)
 
 # Data
 template_fp = osp.join(args.data_fp, 'raw', 'train',
-                       'label', 'label_0.obj')
+                       'data', 'data_0.obj')
 meshdata = meshdata.MeshData(
     root=args.data_fp,
     template_fp=template_fp,
@@ -89,10 +93,16 @@ train_loader = DataLoader(
     train_dataset, batch_size=args.batch_size, shuffle=True
 )
 test_loader = DataLoader(test_dataset, batch_size=args.batch_size)
-d = train_dataset[0]
+#d = train_dataset[0]
+d = next(iter(test_loader))
 # spiral_indices = preprocess_spiral(d.face.T, args.seq_length).to(device)
-print(d)
+print(d.y.size())
+plt.scatter(d.y[0, :, 1], d.y[0, :, 2])
+# plt.show()
 
+print(c1_loss(None, d.y.to(device)))
+
+# exit()
 # Network
 # generate/load transform matrices
 transform_fp = osp.join(args.data_fp, 'transform.pkl')
@@ -138,8 +148,9 @@ up_transform_list = [
 model = SkipAE(
     args.in_channels, args.out_channels, args.latent_channels,
     spiral_indices_list, down_transform_list,
-    up_transform_list
+    up_transform_list, conv=GatedSpiralConv
 ).to(device)
+# model = Net(3, 3, spiral_indices_list[0]).to(device) horrible results (5 liloss score)
 print('Number of parameters: {}'.format(utils.count_parameters(model)))
 print(model)
 print(d.size())
@@ -169,6 +180,8 @@ run(
     optimizer=optimizer,
     scheduler=scheduler,
     writer=writer,
-    device=device
+    device=device,
+    use_mask=True
 )
-eval_error(model, test_loader, device, meshdata, args.out_dir)
+eval_error(model, test_loader, device, meshdata,
+           args.out_dir, use_mask=True)

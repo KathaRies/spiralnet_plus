@@ -26,7 +26,9 @@ class BEZIER(InMemoryDataset):
                  train=True,
                  transform=None,
                  pre_transform=None,
-                 pre_filter=None):
+                 pre_filter=None,
+                 mask_size=(9, 3)):
+        self.mask_size = mask_size
         super(BEZIER, self).__init__(
             root, transform, pre_transform, pre_filter)
         path = self.processed_paths[0] if train else self.processed_paths[1]
@@ -47,28 +49,33 @@ class BEZIER(InMemoryDataset):
 
     def process(self):
         # extract_zip(self.raw_paths[0], self.raw_dir, log=False)
+        mask = torch.ones((self.mask_size[0]**2, 1))
+        m = self.mask_size[1]
+        mask[m:-m, m:-m] = 0
 
         data_path = osp.join(self.raw_dir, 'train', 'data', 'data_{}.obj')
         label_path = osp.join(self.raw_dir, 'train', 'label', 'label_{}.obj')
-        # TODO data with correct topology
-        train_list = self._get_set_meshes(label_path, label_path)
+        train_list = self._get_set_meshes(
+            data_path, label_path, mask=mask.flatten(end_dim=-2)
+        )
 
         data_path = osp.join(self.raw_dir, 'test', 'data', 'data_{}.obj')
         label_path = osp.join(self.raw_dir, 'test', 'label', 'label_{}.obj')
-        test_list = self._get_set_meshes(label_path, label_path)
+        test_list = self._get_set_meshes(data_path, label_path, mask)
 
         torch.save(self.collate(train_list), self.processed_paths[0])
         torch.save(self.collate(test_list), self.processed_paths[1])
 
         # shutil.rmtree(osp.join(self.raw_dir))
 
-    def _get_set_meshes(self, data_path: str, label_path) -> List:
+    def _get_set_meshes(self, data_path: str, label_path, mask) -> List:
         mesh_list = []
         for i in range(100):
             data = read_mesh(data_path.format(i))
             #data.x = torch.transpose(data.x, 0, 1)
             label = read_mesh(label_path.format(i))
             data.y = label.x  # torch.transpose(label.x, 0, 1)
+            data.mask = mask
             if self.pre_filter is not None and not self.pre_filter(data):
                 continue
             if self.pre_transform is not None:
