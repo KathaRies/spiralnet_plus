@@ -3,6 +3,8 @@ __pycache__/
 **/out/
 INPUT.md
 *.pyc
+*.csv
+*.obj
 
 data/*
 !data/CoMA/
