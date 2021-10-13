@@ -1,3 +1,4 @@
+from enum import Enum
 import time
 import os
 import numpy as np
@@ -6,8 +7,47 @@ import torch.nn.functional as F
 import openmesh as om
 
 
-def c1_loss(label, pred) -> float:
+class Loss(Enum):
+    MSE = "mse"
+    L1 = "l1"
+    MSE_C1 = "mse_c1"
+    L1_C1 = "l1_c1"
+
+    def get_loss(self):
+        if self == Loss.MSE:
+            return F.mse_loss
+        elif self == Loss.L1:
+            return F.l1_loss
+        elif self == Loss.MSE_C1:
+            return mse_c1
+        elif self == Loss.L1_C1:
+            return l1_c1
+        else:
+            raise ValueError("Unkown loss")
+
+
+WEIGHT = 0.001
+
+
+def mse_c1(x, y):
+    return F.mse_loss(x, y)+WEIGHT*c1_loss(x, y)
+
+
+def l1_c1(x, y):
+    return F.l1_loss(x, y)+WEIGHT*c1_loss(x, y)
+
+
+LOSS = F.mse_loss
+# F.l1_loss
+# F.mse_loss
+# c1_loss
+# mse_c1
+# l1_c1
+
+
+def c1_loss(pred, label) -> float:
     # tf.experimental.numpy.diff(pred, n=2, axis=0)
+    pred = torch.reshape(pred, (pred.size()[0], 9, 9, 3))
     h_loss = (pred[:, 1:]-pred[:, :-1])[:, 1:] - \
         (pred[:, 1:]-pred[:, :-1])[:, :-1]
     h_loss = abs(h_loss[:, 1::2])
@@ -16,7 +56,7 @@ def c1_loss(label, pred) -> float:
         (pred[:, :, 1:]-pred[:, :, :-1])[:, :, :-1]
     v_loss = abs(v_loss[:, :, 1::2])
     # tf.math.reduce_sum(h_loss) + tf.math.reduce_sum(v_loss)
-    return torch.sum(h_loss) + torch.sum(v_loss)
+    return (torch.sum(h_loss) + torch.sum(v_loss))
 
 
 def c1_eval(model, loader, use_mask, device) -> float:
@@ -31,12 +71,14 @@ def c1_eval(model, loader, use_mask, device) -> float:
                 mask = data.mask.to(device)
                 x = torch.cat((x, mask), -1)
             pred = model(x)
-            total_loss += c1_loss(y, y)  # TODO change to pred
+            total_loss += c1_loss(pred, y)
     return total_loss / len(loader)
 
 
 def run(model, train_loader, test_loader, epochs, optimizer, scheduler, writer,
-        device, use_mask):
+        device, use_mask, loss):
+
+    LOSS = loss
     train_losses, test_losses = [], []
 
     for epoch in range(1, epochs + 1):
@@ -57,6 +99,7 @@ def run(model, train_loader, test_loader, epochs, optimizer, scheduler, writer,
 
         writer.print_info(info)
         writer.save_checkpoint(model, optimizer, scheduler, epoch)
+    return info
 
 
 def train(model, optimizer, loader, device, use_mask):
@@ -71,9 +114,7 @@ def train(model, optimizer, loader, device, use_mask):
             mask = data.mask.to(device)
             x = torch.cat((x, mask), -1)
         out = model(x)
-        # F.mse_loss(out, y)  # F.l1_loss(out, y, reduction='mean')
-        # (0.01*c1_loss(y, out) + F.l1_loss(out, y, reduction='mean'))
-        loss = F.l1_loss(out, y, reduction='mean')
+        loss = LOSS(out, y)
         loss.backward()
         total_loss += loss.item()
         optimizer.step()
@@ -103,10 +144,7 @@ def test(model, loader, device, use_mask):
                 mask = data.mask.to(device)
                 x = torch.cat((x, mask), -1)
             pred = model(x)
-            # F.l1_loss(pred, y, reduction='mean')
-            # F.mse_loss(pred, y)
-            total_loss += F.l1_loss(pred, y, reduction='mean')
-            #(0.01*c1_loss(y, pred) + F.l1_loss(pred, y, reduction='mean'))
+            total_loss += LOSS(pred, y)
     return total_loss / len(loader)
 
 
