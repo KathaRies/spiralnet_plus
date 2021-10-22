@@ -49,7 +49,7 @@ class BEZIER(InMemoryDataset):
 
     def process(self):
         # extract_zip(self.raw_paths[0], self.raw_dir, log=False)
-        mask = torch.ones((self.mask_size[0]**2, 1))
+        mask = torch.ones((self.mask_size[0], self.mask_size[0], 1))
         m = self.mask_size[1]
         mask[m:-m, m:-m] = 0
 

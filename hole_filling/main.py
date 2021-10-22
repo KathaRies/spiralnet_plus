@@ -26,10 +26,12 @@ from datasets import BEZIER, MeshData
 
 from hole_filling import run, SkipAE, eval_error, CNN, AE
 from correspondence.network import Net
+from utils.read import read_mesh
 
 # Settings
 parser = argparse.ArgumentParser(description='hole_filling')
-parser.add_argument('--dataset', type=str, default='500_0_2x2_4x4_0')
+parser.add_argument('--dataset', type=str,
+                    default='500_0_2x2_4x4_0')
 # -1 cpu, else gpu idx
 parser.add_argument('--device_idx', type=int, default=0)
 parser.add_argument('--n_threads', type=int, default=4)
@@ -181,6 +183,10 @@ def train_network(args: argparse.Namespace):
     eval_error(model, test_loader, device, meshdata,
                args.out_dir, use_mask=True)
 
+    eval_error(
+        model, flat, device, meshdata, args.out_dir, use_mask=True
+    )
+
     return info
 
 
@@ -219,7 +225,24 @@ print(d.y.size())
 plt.scatter(d.y[0, :, 1], d.y[0, :, 2])
 # plt.show()
 
-print(c1_loss(d.y.to(device), None))
+data_path = osp.join(
+    '/home/katha/Documents/Uni/Thesis/BezierGAN/datasets/', "flat_surface_data.obj")
+label_path = osp.join(
+    '/home/katha/Documents/Uni/Thesis/BezierGAN/datasets/', "flat_surface_label.obj")
+data = read_mesh(data_path)
+#data.x = torch.transpose(data.x, 0, 1)
+label = read_mesh(label_path)
+data.x = data.x
+data.y = label.x  # torch.transpose(label.x, 0, 1)
+np_shape = (4*2+1, 4*2+1, 3)
+mask = torch.ones((*np_shape[:2], 1), dtype=bool)
+mask[3:-3, 3:-3] = 0
+data.mask = mask.flatten(end_dim=-2)
+
+flat = DataLoader([data], batch_size=1, shuffle=True)
+
+
+#print(c1_loss(d.y.to(device), None))
 # Network
 # generate/load transform matrices
 transform_fp = osp.join(args.data_fp, 'transform.pkl')
@@ -227,26 +250,36 @@ spiral_indices_list, down_transform_list, up_transform_list = _get_transform(
     transform_fp, template_fp, device, 3
 )
 
+args.epochs = 200
+# train_network(args)
+# exit()
+
 first = True
 
-with open('architectures_l1_comparision_500.csv', 'w') as f:
+with open('architectures_l1_layers_500_seq_len.csv', 'w') as f:
     w = csv.writer(f, delimiter=',')
     # for l in Loss:
-    for arch in Architecture:
-        # for n_layers in range(1, 4):
-        for length in range(1, 9, 2):
-            # for pool in range(1, 4):
-            args.architecture = arch
-            args.loss = Loss.L1
-            args.seq_length = [length]*2
-            # args.pooling = [pool]*n_layers
-            # args.dilation = [dil]*n_layers
-            print(args)
-            info = train_network(args)
-            temp = vars(args)
-            temp.update(info)
-            print(temp)
-            if first:
-                first = False
-                w.writerow(temp.keys())
-            w.writerow(temp.values())
+    # for arch in Architecture:
+    # for n_layers in range(2, 4):
+    n_layers = 2
+    # for length in range(1, 9, 2):
+    for length in range(1, 25, 1):
+        for latent in range(2, 8, 1):
+            for outs in range(2, 6, 1):
+                # for pool in range(1, 4):
+                args.architecture = Architecture.GatedSkipAE  # arch
+                args.loss = Loss.L1
+                args.seq_length = [length]*n_layers
+                args.out_channels = [2**(outs+n) for n in range(n_layers)]
+                args.pooling = [2]*n_layers
+                args.dilation = [1]*n_layers
+                args.latent_channels = 2**latent
+                print(args)
+                info = train_network(args)
+                temp = vars(args)
+                temp.update(info)
+                print(temp)
+                if first:
+                    first = False
+                    w.writerow(temp.keys())
+                w.writerow(temp.values())

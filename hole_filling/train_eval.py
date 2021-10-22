@@ -29,6 +29,18 @@ class Loss(Enum):
 WEIGHT = 0.001
 
 
+def combined_loss(x, y, mask):
+    edge_penalty = 1.5
+    distance = torch.mean(
+        (mask*edge_penalty) * F.l1_loss(x, y, reduction=None)
+    )
+    # F.mse_loss(x,y)
+    curvation = c1_loss(x, y)
+    bending = 0
+    a, b, c = 1
+    return a*distance + b*curvation + c * bending
+
+
 def mse_c1(x, y):
     return F.mse_loss(x, y)+WEIGHT*c1_loss(x, y)
 
@@ -38,11 +50,6 @@ def l1_c1(x, y):
 
 
 LOSS = F.mse_loss
-# F.l1_loss
-# F.mse_loss
-# c1_loss
-# mse_c1
-# l1_c1
 
 
 def c1_loss(pred, label) -> float:
