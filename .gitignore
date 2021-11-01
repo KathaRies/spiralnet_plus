@@ -5,6 +5,7 @@ INPUT.md
 *.pyc
 *.csv
 *.obj
+*.ods
 
 data/*
 !data/CoMA/
