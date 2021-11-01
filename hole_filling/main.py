@@ -6,6 +6,7 @@ import argparse
 import os.path as osp
 import pickle
 import numpy as np
+import numpy.core.multiarray
 
 import torch
 import torch.nn as nn
@@ -19,7 +20,7 @@ from torchsummary import summary
 from psbody.mesh import Mesh
 from conv.spiralconv import GatedSpiralConv, SpiralConv
 from hole_filling.network import Architecture
-from hole_filling.train_eval import Loss, c1_loss
+from hole_filling.train_eval import Loss, c1_eval, c1_loss
 
 from utils import utils, mesh_sampling, Writer, DataLoader
 from datasets import BEZIER, MeshData
@@ -31,7 +32,7 @@ from utils.read import read_mesh
 # Settings
 parser = argparse.ArgumentParser(description='hole_filling')
 parser.add_argument('--dataset', type=str,
-                    default='500_0_2x2_4x4_0')
+                    default='100_0_2x2_4x4_0_norm')
 # -1 cpu, else gpu idx
 parser.add_argument('--device_idx', type=int, default=0)
 parser.add_argument('--n_threads', type=int, default=4)
@@ -41,7 +42,7 @@ parser.add_argument('--architecture', type=str, default=Architecture.SkipAE)
 parser.add_argument('--loss', type=str, default=Loss.L1)
 parser.add_argument('--out_channels',
                     nargs='+',
-                    default=[32, 64],
+                    default=[16, 32],
                     type=int)
 parser.add_argument('--latent_channels', type=int, default=32)
 parser.add_argument('--in_channels', type=int, default=4)
@@ -94,6 +95,7 @@ def _get_transform(
 
             mesh = QuadMesh(path=template_fp)
         elif vertices_per_face == 3:
+            print(template_fp)
             mesh = Mesh(filename=template_fp)
         else:
             raise ValueError("Only supporting Tri and Quad Meshes")
@@ -167,6 +169,9 @@ def train_network(args: argparse.Namespace):
     print(f"training for {args.epochs} epochs")
 
     loss = args.loss.get_loss()
+    # print(loss)
+    # print(c1_loss(d.y, d.y))
+    # exit()
 
     info = run(
         model=model,
@@ -183,9 +188,9 @@ def train_network(args: argparse.Namespace):
     eval_error(model, test_loader, device, meshdata,
                args.out_dir, use_mask=True)
 
-    eval_error(
-        model, flat, device, meshdata, args.out_dir, use_mask=True
-    )
+    # eval_error(
+    #     model, flat, device, meshdata, args.out_dir, use_mask=True
+    # )
 
     return info
 
@@ -205,7 +210,7 @@ writer = Writer(args)
 
 # Data
 template_fp = osp.join(args.data_fp, 'raw', 'train',
-                       'data', 'data_0.obj')
+                       'label', 'label_0.obj')
 meshdata = MeshData(
     root=args.data_fp,
     template_fp=template_fp,
@@ -250,9 +255,10 @@ spiral_indices_list, down_transform_list, up_transform_list = _get_transform(
     transform_fp, template_fp, device, 3
 )
 
-args.epochs = 200
-# train_network(args)
-# exit()
+args.epochs = 500
+args.loss = Loss.COMBI
+train_network(args)
+exit()
 
 first = True
 
