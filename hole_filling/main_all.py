@@ -1,4 +1,3 @@
-import os
 import openmesh as om
 import csv
 from typing import List, Tuple
@@ -53,7 +52,7 @@ parser.add_argument('--pooling', type=int, default=[2, 2], nargs='+')
 
 # Dimensions e.g 2x2_4x4
 # input: 81,3 vertices, 238 edges, 97 faces (tris)
-# conv: v_i E k-ring, i E [0,args.seq_length]
+# conv: k-ring, k E [0,args.seq_length]
 # pool: downsampled by pooling: 2,2
 
 # optimizer hyperparmeters
@@ -138,17 +137,13 @@ def train_network(args: argparse.Namespace):
         train_dataset, batch_size=args.batch_size, shuffle=True
     )
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size)
-    d = next(iter(test_loader))
-    d.mask[0]
-    input_size = d.x.shape[1]
-    #hole_size = input_size-d.mask[0].count_nonzero()
 
     architecture, conv = args.architecture.get_model_class()
 
     model = architecture(
         args.in_channels, args.out_channels, args.latent_channels,
         spiral_indices_list, down_transform_list,
-        up_transform_list, conv=conv, hole_size=args.hole_size, input_size=input_size
+        up_transform_list, conv=conv
     ).to(device)
     # model = Net(3, 3, spiral_indices_list[0]).to(device) horrible results (5 liloss score)
     print('Number of parameters: {}'.format(utils.count_parameters(model)))
@@ -187,14 +182,14 @@ def train_network(args: argparse.Namespace):
         use_mask=True,
         loss=loss
     )
-    meshes = eval_error(model, test_loader, device, meshdata,
-                        args.out_dir, use_mask=True)
+    eval_error(model, test_loader, device, meshdata,
+               args.out_dir, use_mask=True)
 
     # eval_error(
     #     model, flat, device, meshdata, args.out_dir, use_mask=True
     # )
 
-    return info, meshes
+    return info
 
 
 def preload(args):
@@ -203,8 +198,20 @@ def preload(args):
         '/home/katha/Documents/Uni/Thesis/BezierGAN/datasets/', args.dataset
     )
 
+    args.work_dir = osp.dirname(osp.realpath(__file__))
+    args.out_dir = osp.join(args.work_dir, 'evaluation')
+    args.checkpoints_dir = osp.join(args.out_dir, 'checkpoints')
+
+    device = torch.device(
+        'cuda:{}'.format(args.device_idx)
+    ) if args.device_idx else torch.device('cpu')
+    torch.set_num_threads(args.n_threads)
+
+    utils.makedirs(args.out_dir)
+    utils.makedirs(args.checkpoints_dir)
+
     # Data
-    template_fp = osp.join(args.data_fp, 'raw', 'test',
+    template_fp = osp.join(args.data_fp, 'raw', 'train',
                            'label', 'label_0.obj')
     meshdata = MeshData(
         root=args.data_fp,
@@ -222,63 +229,44 @@ def preload(args):
     return meshdata, device, spiral_indices_list, down_transform_list, up_transform_list
 
 
-args.epochs = 50
+args.epochs = 200
 args.batch_size = 8
 args.loss = Loss.COMBI
-#args.architecture = Architecture.HoleAE
-#degree = 2
-#dim = 4
-#args.dataset = f"10000_0_{degree}x{degree}_{dim}x{dim}"
+args.architecture = Architecture.AE
+args.dataset = f"10000_0_{2}x{2}_{4}x{4}"
 args.seq_length = [3, 3]
 args.out_channels = [32, 64]
 args.latent_channels = 128
-# meshdata, device, spiral_indices_list, down_transform_list, up_transform_list = preload(
-#     args
-# )
-# info, meshes = train_network(args)
-args.work_dir = osp.dirname(osp.realpath(__file__))
-args.out_dir = osp.join(args.work_dir, 'evaluation')
-args.checkpoints_dir = osp.join(args.out_dir, 'checkpoints')
 
-device = torch.device(
-    'cuda:{}'.format(args.device_idx)
-) if args.device_idx else torch.device('cpu')
-torch.set_num_threads(args.n_threads)
-
-utils.makedirs(args.out_dir)
+meshdata, device, spiral_indices_list, down_transform_list, up_transform_list = preload(
+    args
+)
+train_network(args)
+exit()
 
 first = True
-with open(osp.join(args.out_dir, 'cubic_results.csv'), 'w') as f:
+with open(osp.join(args.out_dir, 'spiral_results.csv'), 'w') as f:
     w = csv.writer(f, delimiter=',')
-    for degree in [3, 2]:
-        for dataset in ["4", "8", "m8"]:  # "4", "8",m8
+    for dataset in ["4", "8", "m8"]:
+        for degree in [2, 3]:
             if dataset == "4":
                 patch_size = 4
-                dataset_path = f"10000_0_{degree}x{degree}_{patch_size}x{patch_size}"
-                args.hole_size = (2*degree-1)**2
+                dataset_path = f"10000_0_{degree}x{degree}_{dataset}x{dataset}"
             elif dataset == "8":
                 patch_size = 8
-                dataset_path = f"10000_0_{degree}x{degree}_{patch_size}x{patch_size}"
-                args.hole_size = (6*degree-1)**2
+                dataset_path = f"10000_0_{degree}x{degree}_{dataset}x{dataset}"
             elif dataset == "m8":
                 patch_size = 8
-                dataset_path = f"10000_0_DFHDFHDFGHDFFGHDHDDDDdfgd    gdedfhdfgdgdfgjkkkkkkzjjs{patch_size}_moving"
-                args.hole_size = (2*degree-1)**2
+                dataset_path = f"10000_0_{degree}x{degree}_{dataset}x{dataset}_moving"
             args.dataset = dataset_path
 
             meshdata, device, spiral_indices_list, down_transform_list, up_transform_list = preload(
                 args
             )
-            for architecture in [Architecture.GatedSkipHoleAE, Architecture.HoleAE]:
-                args.out_dir = osp.join(
-                    args.work_dir, 'evaluation', architecture.value)
-                os.makedirs(osp.join(args.out_dir, "meshes"), exist_ok=True)
-                args.checkpoints_dir = osp.join(args.out_dir, 'checkpoints')
-                utils.makedirs(args.checkpoints_dir)
-
+            for architecture in [Architecture.AE, Architecture.GatedSkipAE]:
                 args.architecture = architecture
                 print(args)
-                info, meshes = train_network(args)
+                info = train_network(args)
                 temp = vars(args)
                 temp.update(info)
                 print(temp)
@@ -286,14 +274,7 @@ with open(osp.join(args.out_dir, 'cubic_results.csv'), 'w') as f:
                     first = False
                     w.writerow(temp.keys())
                 w.writerow(temp.values())
-                for m in meshes:
-                    om.write_mesh(
-                        mesh=meshes[m], filename=osp.join(
-                            args.out_dir, "meshes", f"{args.dataset}_{args.architecture.value}_test_{m}.obj"
-                        )
-                    )
-        continue
-exit()
+
 
 with open('architectures_l1_layers_500_seq_len.csv', 'w') as f:
     w = csv.writer(f, delimiter=',')

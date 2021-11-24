@@ -31,24 +31,35 @@ class Loss(Enum):
 
 WEIGHT = 0.01
 
-mask = torch.ones((9, 9, 1))
-m = 3
-mask[m:-m, m:-m] = 0
-mask = mask.flatten(end_dim=-2)
+# mask = torch.ones((9, 9, 1))
+# m = 3
+# mask[m:-m, m:-m] = 0
+# mask = mask.flatten(end_dim=-2)
 
 
-def combined_loss(x, y, mask=mask):
+def combined_loss(x, y, mask):
+    mask = mask.type(torch.bool)
+    # with x only the hole nad y the whole
     edge_penalty = 100
-    distance = torch.mean(
-        (mask*edge_penalty) * F.mse_loss(x, y)
-    )
+    f = torch.zeros_like(x)
+    for e, elem in enumerate(f):
+        f[e] = y[e, ~mask[e, :, 0], :]
+    distance = F.mse_loss(x, f)
+    c = y.clone()
+    for e, elem in enumerate(y):
+        c[e, ~mask[e, :, 0], :] = x[e]
     # F.mse_loss(x,y)
-    curvation = c1_loss(x, y)
-    bending = 0
-    a = 1
-    b = 0
-    c = 1
-    return a*distance + b*curvation + c * bending
+    curvation = c1_loss(c, y)
+    return curvation * distance
+
+# def combined_loss(x, y, mask=mask):
+#     edge_penalty = 100
+#     distance = torch.mean(
+#         (mask*edge_penalty) * F.mse_loss(x, y)
+#     )
+#     # F.mse_loss(x,y)
+#     curvation = c1_loss(x, y)
+#     return distance*curvation
 
 
 def mse_c1(x, y):
@@ -63,16 +74,20 @@ LOSS = F.mse_loss
 
 
 def c1_loss(pred, label) -> float:
-    # tf.experimental.numpy.diff(pred, n=2, axis=0)
-    pred = torch.reshape(pred, (pred.size()[0], 9, 9, 3))
+    patch_size = int(np.sqrt(pred.shape[1]))
+    degree = 3 if patch_size-1 % 3 == 0 else 2
+    assert degree == 2
+    start = degree-1
+    pred = torch.reshape(pred, (pred.size()[0], patch_size, patch_size, 3))
     h_loss = (pred[:, 1:]-pred[:, :-1])[:, 1:] - \
         (pred[:, 1:]-pred[:, :-1])[:, :-1]
-    h_loss = abs(h_loss[:, 1::2])
+    h_loss = abs(h_loss[:, start::degree])
     # tf.experimental.numpy.diff(pred, n=2, axis=1)
     v_loss = (pred[:, :, 1:]-pred[:, :, :-1])[:, :, 1:] - \
         (pred[:, :, 1:]-pred[:, :, :-1])[:, :, :-1]
-    v_loss = abs(v_loss[:, :, 1::2])
+    v_loss = abs(v_loss[:, :, start::degree])
     # tf.math.reduce_sum(h_loss) + tf.math.reduce_sum(v_loss)
+    # torch.mean()
     return torch.mean(torch.sum(input=h_loss, dim=(1, 2, 3), keepdim=True) + torch.sum(v_loss, dim=(1, 2, 3), keepdim=True))
 
 
@@ -88,16 +103,17 @@ def c1_eval(model, loader, use_mask, device) -> float:
                 mask = data.mask.to(device)
                 x = torch.cat((x, mask), -1)
             pred = model(x)
-            l = c1_loss(pred, y)
+            c = y.clone()
+            mask = mask.type(torch.bool)
+            for e, elem in enumerate(y):
+                c[e, ~mask[e, :, 0], :] = pred[e]
+            l = c1_loss(c, y)
             total_loss += l
     return total_loss / len(loader)
 
 
 def run(model, train_loader, test_loader, epochs, optimizer, scheduler, writer,
         device, use_mask, loss):
-
-    LOSS = loss
-    train_losses, test_losses = [], []
 
     for epoch in range(1, epochs + 1):
         t = time.time()
@@ -113,11 +129,11 @@ def run(model, train_loader, test_loader, epochs, optimizer, scheduler, writer,
             'test_loss': test_loss,
             't_duration': t_duration,
             'c1_test': c1_eval(model, test_loader, use_mask, device),
-            'c1_train': c1_eval(model, train_loader, use_mask, device)
+            'mse_test': test_mse(model, test_loader, device, use_mask)
         }
 
         writer.print_info(info)
-        writer.save_checkpoint(model, optimizer, scheduler, epoch)
+    writer.save_checkpoint(model, optimizer, scheduler, epoch)
     return info
 
 
@@ -131,9 +147,14 @@ def train(model, optimizer, loader, device, use_mask, in_loss):
         y = data.y.to(device)
         if use_mask:
             mask = data.mask.to(device)
+            assert x.shape[1]-mask[0].count_nonzero() == model.hole_size
             x = torch.cat((x, mask), -1)
-        out = model(x)
-        loss = in_loss(out, y)
+            out = model(x)
+            loss = in_loss(out, y, mask)
+        else:
+            out = model(x)
+            loss = in_loss(out, y)
+
         loss.backward()
         total_loss += loss.item()
         optimizer.step()
@@ -161,8 +182,32 @@ def test(model, loader, device, use_mask, in_loss):
             if use_mask:
                 mask = data.mask.to(device)
                 x = torch.cat((x, mask), -1)
+                pred = model(x)
+                loss = in_loss(pred, y, mask)
+            else:
+                pred = model(x)
+                loss = in_loss(pred, y)
+            total_loss += loss
+    return total_loss / len(loader)
+
+
+def test_mse(model, loader, device, use_mask):
+    model.eval()
+    total_loss = 0
+    with torch.no_grad():
+        for i, data in enumerate(loader):
+            x = data.x.to(device)
+            y = data.y.to(device)
+            if use_mask:
+                mask = data.mask.to(device)
+                x = torch.cat((x, mask), -1)
             pred = model(x)
-            total_loss += in_loss(pred, y)
+            f = torch.zeros_like(pred)
+            mask = mask.type(torch.bool)
+            for e, elem in enumerate(f):
+                f[e] = y[e, ~mask[e, :, 0], :]
+            loss = F.mse_loss(pred, f)
+            total_loss += loss
     return total_loss / len(loader)
 
 
@@ -172,6 +217,7 @@ def eval_error(model, test_loader, device, meshdata, out_dir, use_mask):
     errors = []
     mean = meshdata.mean
     std = meshdata.std
+    out_data = {}
     with torch.no_grad():
         for i, data in enumerate(test_loader):
             x = data.x.to(device)
@@ -180,8 +226,12 @@ def eval_error(model, test_loader, device, meshdata, out_dir, use_mask):
                 mask = data.mask.to(device)
                 x = torch.cat((x, mask), -1)
             pred = model(x)
+            c = y.clone()
+            mask = mask.type(torch.bool)
+            for e, elem in enumerate(y):
+                c[e, ~mask[e, :, 0], :] = pred[e]
             num_graphs = data.num_graphs
-            reshaped_pred = (pred.view(num_graphs, -1, 3).cpu() * std) + mean
+            reshaped_pred = (c.view(num_graphs, -1, 3).cpu() * std) + mean
             reshaped_y = (y.view(num_graphs, -1, 3).cpu() * std) + mean
 
             reshaped_pred *= 1000
@@ -193,20 +243,23 @@ def eval_error(model, test_loader, device, meshdata, out_dir, use_mask):
             errors.append(tmp_error)
             if i == 0:
                 pred_mesh = om.TriMesh(
-                    points=pred[0].numpy(),
+                    points=c[0].numpy(),
                     face_vertex_indices=data.face[0].numpy().transpose()
                 )
-                om.write_mesh(mesh=pred_mesh, filename="test_result.obj")
+                out_data["output"] = pred_mesh
+                #om.write_mesh(mesh=pred_mesh, filename=os.path.join(out_dir,"test_result.obj"))
                 label_mesh = om.TriMesh(
                     points=y[0].numpy(),
                     face_vertex_indices=data.face[0].numpy().transpose()
                 )
-                om.write_mesh(mesh=label_mesh, filename="test_label.obj")
+                out_data["label"] = label_mesh
+                #om.write_mesh(mesh=label_mesh, filename=os.path.join(out_dir,"test_label.obj"))
                 input_mesh = om.TriMesh(
                     points=x[0][:, :3].numpy(),
                     face_vertex_indices=data.face[0].numpy().transpose()
                 )
-                om.write_mesh(mesh=input_mesh, filename="test_input.obj")
+                out_data["input"] = input_mesh
+                #om.write_mesh(mesh=input_mesh, filename=os.path.join(out_dir,"test_input.obj"))
         new_errors = torch.cat(errors, dim=0)  # [n_total_graphs, num_nodes]
 
         mean_error = new_errors.view((-1, )).mean()
@@ -220,3 +273,4 @@ def eval_error(model, test_loader, device, meshdata, out_dir, use_mask):
     with open(out_error_fp, 'a') as log_file:
         log_file.write('{:s}\n'.format(message))
     print(message)
+    return out_data

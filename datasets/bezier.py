@@ -80,6 +80,8 @@ class BEZIER(InMemoryDataset):
             l_path = osp.join(label_path, 'label_{}.obj')
             label = read_mesh(l_path.format(i))
             data.y = label.x  # torch.transpose(label.x, 0, 1)
+            mask = torch.sum(
+                data.x, dim=(-1), keepdim=True).type(torch.bool).type(torch.float)[:, 0:1]
             data.mask = mask
             if self.pre_filter is not None and not self.pre_filter(data):
                 continue

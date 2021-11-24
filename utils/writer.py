@@ -40,8 +40,9 @@ class Writer:
             self.writer.add_scalar(
                 'Loss/test_c1', info['c1_test'], info['current_epoch']
             )
+        if 'mse_test' in info:
             self.writer.add_scalar(
-                'Loss/train_c1', info['c1_train'], info['current_epoch']
+                'Loss/test_mse', info['mse_test'], info['current_epoch']
             )
 
     def save_checkpoint(self, model, optimizer, scheduler, epoch):
@@ -52,8 +53,10 @@ class Writer:
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
             },
-            os.path.join(self.args.checkpoints_dir,
-                         'checkpoint_{:03d}.pt'.format(epoch)))
+            os.path.join(
+                self.args.checkpoints_dir,
+                f'checkpoint_{epoch}_{time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())}.pt')
+        )
 
     def add_graph(self, model, input):
         print(input.size())

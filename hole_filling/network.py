@@ -223,6 +223,47 @@ class NN(nn.Module):
         return x
 
 
+class HoleAE(AE):
+    """Same as reconsturction.network.AE but with a final linear layer
+    mapping the output to the hole filling instead of the whole mesh.
+
+    Args:
+        AE ([type]): [description]
+    """
+
+    def __init__(self, in_channels, out_channels, latent_channels, spiral_indices, down_transform, up_transform, conv, hole_size, input_size):
+        super(HoleAE, self).__init__(in_channels, out_channels, latent_channels,
+                                     spiral_indices, down_transform, up_transform, conv=conv)
+        self.fc1 = nn.Linear(
+            input_size*3, hole_size*3
+        )
+        self.hole_size = hole_size
+
+    def forward(self, x, *indices):
+        x = super().forward(x, *indices)
+        x = torch.flatten(x, 1)
+        x = self.fc1(x)
+        x = torch.reshape(x, (-1, self.hole_size, 3))
+        return x
+
+
+class HoleSkipAE(SkipAE):
+    def __init__(self, in_channels, out_channels, latent_channels, spiral_indices, down_transform, up_transform, conv, hole_size, input_size):
+        super(HoleSkipAE, self).__init__(in_channels, out_channels,
+                                         latent_channels, spiral_indices, down_transform, up_transform, conv=conv)
+        self.fc1 = nn.Linear(
+            input_size*3, hole_size*3
+        )
+        self.hole_size = hole_size
+
+    def forward(self, x, *indices):
+        x = super().forward(x, *indices)
+        x = torch.flatten(x, 1)
+        x = self.fc1(x)
+        x = torch.reshape(x, (-1, self.hole_size, 3))
+        return x
+
+
 class Architecture(Enum):
     GatedSkipAE = "GatedSkipAE"
     GatedSkipCNN = "GatedSkipCNN"
@@ -233,6 +274,8 @@ class Architecture(Enum):
     AE = "AE"
     CNN = "CNN"
     NN = "NN"
+    HoleAE = "HoleAE"
+    GatedSkipHoleAE = "GatedSkipHoleAE"
 
     def get_model_class(self):
         if self == Architecture.GatedAE:
@@ -253,5 +296,9 @@ class Architecture(Enum):
             return AE, SpiralConv
         elif self == Architecture.NN:
             return NN, None
+        elif self == Architecture.HoleAE:
+            return HoleAE, SpiralConv
+        elif self == Architecture.GatedSkipHoleAE:
+            return HoleSkipAE, GatedSpiralConv
         else:
             raise ValueError("Unknown Architecture")
