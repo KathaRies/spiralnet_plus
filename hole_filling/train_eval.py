@@ -75,8 +75,7 @@ LOSS = F.mse_loss
 
 def c1_loss(pred, label) -> float:
     patch_size = int(np.sqrt(pred.shape[1]))
-    degree = 3 if patch_size-1 % 3 == 0 else 2
-    assert degree == 2
+    degree = 3 if (patch_size-1) % 3 == 0 else 2
     start = degree-1
     pred = torch.reshape(pred, (pred.size()[0], patch_size, patch_size, 3))
     h_loss = (pred[:, 1:]-pred[:, :-1])[:, 1:] - \

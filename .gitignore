@@ -9,6 +9,7 @@ INPUT.md
 
 data/*
 !data/CoMA/
+*/evaluation/
 
 data/CoMA/*
 !data/CoMA/template/

@@ -20,7 +20,7 @@ from torchsummary import summary
 
 from psbody.mesh import Mesh
 from conv.spiralconv import GatedSpiralConv, SpiralConv
-from hole_filling.network import Architecture
+from hole_filling.network import Architecture, HoleSkipAE, HoleAE
 from hole_filling.train_eval import Loss, c1_eval, c1_loss
 
 from utils import utils, mesh_sampling, Writer, DataLoader
@@ -205,7 +205,7 @@ def preload(args):
 
     # Data
     template_fp = osp.join(args.data_fp, 'raw', 'test',
-                           'label', 'label_0.obj')
+                           'label', 'label_1.obj')
     meshdata = MeshData(
         root=args.data_fp,
         template_fp=template_fp,
@@ -248,27 +248,49 @@ torch.set_num_threads(args.n_threads)
 utils.makedirs(args.out_dir)
 
 first = True
-with open(osp.join(args.out_dir, 'cubic_results.csv'), 'w') as f:
+with open(osp.join(args.out_dir, 'cubic_redo_results.csv'), 'w') as f:
     w = csv.writer(f, delimiter=',')
-    for degree in [3, 2]:
-        for dataset in ["4", "8", "m8"]:  # "4", "8",m8
+    for degree in [3]:  # 2
+        for dataset in ["4", "8"]:  # "4", "8",m8
             if dataset == "4":
                 patch_size = 4
                 dataset_path = f"10000_0_{degree}x{degree}_{patch_size}x{patch_size}"
                 args.hole_size = (2*degree-1)**2
+                # model_path = "/home/katha/Documents/Uni/Thesis/spiralnet_plus/hole_filling/evaluation/GatedSkipHoleAE/checkpoints/checkpoint_50_2021-11-24-11-00-36.pt"
+                #model_path = "/home/katha/Documents/Uni/Thesis/spiralnet_plus/hole_filling/evaluation/HoleAE/checkpoints/checkpoint_50_2021-11-24-11-25-17.pt"
             elif dataset == "8":
                 patch_size = 8
                 dataset_path = f"10000_0_{degree}x{degree}_{patch_size}x{patch_size}"
                 args.hole_size = (6*degree-1)**2
+                # model_path = "/home/katha/Documents/Uni/Thesis/spiralnet_plus/hole_filling/evaluation/GatedSkipHoleAE/checkpoints/checkpoint_50_2021-11-25-00-12-57.pt"
+                #model_path = "/home/katha/Documents/Uni/Thesis/spiralnet_plus/hole_filling/evaluation/HoleAE/checkpoints/checkpoint_50_2021-11-25-07-10-21.pt"
             elif dataset == "m8":
                 patch_size = 8
-                dataset_path = f"10000_0_DFHDFHDFGHDFFGHDHDDDDdfgd    gdedfhdfgdgdfgjkkkkkkzjjs{patch_size}_moving"
+                dataset_path = f"10000_0_{degree}x{degree}_{patch_size}x{patch_size}_moving"
                 args.hole_size = (2*degree-1)**2
             args.dataset = dataset_path
 
             meshdata, device, spiral_indices_list, down_transform_list, up_transform_list = preload(
                 args
             )
+            # # model from checkpoint
+            # # model = HoleSkipAE(
+            # #     args.in_channels, args.out_channels, args.latent_channels,
+            # #     spiral_indices_list, down_transform_list,
+            # #     up_transform_list, conv=GatedSpiralConv, hole_size=args.hole_size,
+            # #     input_size=(patch_size*degree+1)**2
+            # # ).to(device)
+            # model = HoleAE(
+            #     args.in_channels, args.out_channels, args.latent_channels,
+            #     spiral_indices_list, down_transform_list,
+            #     up_transform_list, conv=SpiralConv, hole_size=args.hole_size,
+            #     input_size=(patch_size*degree+1)**2
+            # ).to(device)
+            # model.load_state_dict(torch.load(model_path)["model_state_dict"])
+            # test_loader = DataLoader(
+            #     meshdata.test_dataset, batch_size=args.batch_size)
+            # print(c1_eval(model, test_loader, True, device))
+            # continue
             for architecture in [Architecture.GatedSkipHoleAE, Architecture.HoleAE]:
                 args.out_dir = osp.join(
                     args.work_dir, 'evaluation', architecture.value)
